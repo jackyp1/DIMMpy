@@ -209,15 +209,3 @@ def FindSpot(data, N):
 		XIndexArray[i] = index[0]
 		YIndexArray[i] = index[1]
 	return int(np.median(XIndexArray)), int(np.median(YIndexArray))
-
-# def __main__():
-	# sim = DIMM(0.1, 2, 30)
-	# sim.CreateRandomImageStack(100)
-
-	# read = Reader()
-	# read.ReadSers("2022-10-26-1856_0-CapObj.SER")
-
-	# stripper = Stripper(100)
-	# stripper.Strip("2022-10-26-1856_0-CapObj.SER")
-	# stripper.Strip("212539.FIT", fileFormat='FIT')
-
