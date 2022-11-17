@@ -35,7 +35,7 @@ class DIMM(Writer):
 	def __init__(self, r0, L0, radius):
 		super().__init__()
 		self.nx_size = 512
-		self.shift = radius+2
+		self.shift = 6*radius
 		self.leftPupilMask = ao.circle(radius, self.nx_size, (-self.shift, 0))
 		self.rightPupilMask = ao.circle(radius, self.nx_size, (self.shift, 0))
 		self.apeture = 0.12
@@ -43,7 +43,7 @@ class DIMM(Writer):
 		self.upperphaseScreen = ao.turbulence.infinitephasescreen. PhaseScreenKolmogorov(self.nx_size, self.pxlScale, r0, L0)
 		self.psf = np.zeros((4536, 4536))
 		self.image = np.zeros((4536, 4536))
-		self.padWidth = PadWidth(self.pxlScale, self.nx_size)
+		self.padWidth = PadWidth()
 
 	def ShowPhaseScreen(self):
 		plt.figure()
@@ -64,24 +64,25 @@ class DIMM(Writer):
 		plt.show()
 
 	def CreatePSF(self):
+		N=9
 		wavelength = 550 * 10 ** (-9)
 		distance = 10000
 		compWavefront = np.exp(1j*self.upperphaseScreen.scrn)
 
-		propogatedScreen = ao.opticalpropagation.angularSpectrum(compWavefront, wavelength, self.pxlScale, self.pxlScale, distance)
-
+		#propogatedScreen = ao.opticalpropagation.angularSpectrum(compWavefront, wavelength, self.pxlScale, self.pxlScale, distance)
+		propogatedScreen = compWavefront
 		leftMasked = np.pad((self.leftPupilMask*propogatedScreen), self.padWidth)
 		leftImage = np.abs(ao.ft2(leftMasked, self.pxlScale))**2
 
 		rightMasked = np.pad(self.rightPupilMask*propogatedScreen, self.padWidth)
 		rightImage = np.abs(ao.ft2(rightMasked, self.pxlScale))**2
 
-		self.psf = shift(leftImage, (0, -49)) + shift(rightImage, (0, 49))
+		self.psf = shift(leftImage, (0, -(13*N))) + shift(rightImage, (0, 13*N))
 
 		scale = 2 * EventsExpected() / np.sum(self.psf)
 
 		self.psf = self.psf*scale
-		self.psf = BinPixels(self.psf, 3)
+		self.psf = BinPixels(self.psf, N)
 
 	def CreateImage(self):
 		self.CreatePSF()
@@ -139,6 +140,8 @@ class Analyser(Reader):
 		self.centerSpotIntensity = np.array([])
 		self.outerSpotIntensity = np.array([])
 		self.backgroundMax = 0
+		self.centerImages = []
+		self.outerImages = []
 
 	def SubtractBackground(self, size):
 		backgroundArray = self.readData[:,:size,:size]
@@ -156,22 +159,22 @@ class Analyser(Reader):
 		spotLotatorFrames = np.sum(self.readData[:3], 0) # sums 3 consecutive frames, so we can ensure there is a bright spot in each location.
 		centerLocX, centerLocY = FindSpot(spotLotatorFrames*centralMask, 9)
 		outerLocX, outerLocY = FindSpot(spotLotatorFrames*outerMask, 9)
-		centerImages = self.readData[:,centerLocX-windowSize:centerLocX+windowSize,centerLocY-windowSize:centerLocY+windowSize]
-		outerImages = self.readData[:,outerLocX-windowSize:outerLocX+windowSize,outerLocY-windowSize:outerLocY+windowSize]
+		self.centerImages = self.readData[:,centerLocX-windowSize:centerLocX+windowSize,centerLocY-windowSize:centerLocY+windowSize]
+		self.outerImages = self.readData[:,outerLocX-windowSize:outerLocX+windowSize,outerLocY-windowSize:outerLocY+windowSize]
 
 		deleteArray = []
 		threshold = 20*self.backgroundMax
-		for i in range(len(centerImages)):
-			if np.sum(centerImages[i])<threshold:
+		for i in range(len(self.centerImages)):
+			if np.sum(self.centerImages[i])<threshold:
 				deleteArray.append(i)
-			elif np.sum(outerImages[i])<threshold:
+			elif np.sum(self.outerImages[i])<threshold:
 				deleteArray.append(i)
-		centerImages = np.delete(centerImages, deleteArray, 0)
-		outerImages = np.delete(outerImages, deleteArray, 0)
+		self.centerImages = np.delete(self.centerImages, deleteArray, 0)
+		self.outerImages = np.delete(self.outerImages, deleteArray, 0)
 		print(deleteArray)
 
-		centerCentroids = ao.centre_of_gravity(centerImages)
-		outerCentroids = ao.centre_of_gravity(outerImages)
+		centerCentroids = ao.centre_of_gravity(self.centerImages)
+		outerCentroids = ao.centre_of_gravity(self.outerImages)
 		DifferenceArray = (centerCentroids - outerCentroids) * pixelScale
 		sigmaL = np.std(DifferenceArray[1])
 		sigmaT = np.std(DifferenceArray[0])
@@ -188,8 +191,8 @@ class Analyser(Reader):
 def EventsExpected(magnitude = 2, quantumEfficiency = 0.6, radius = 2.5, exposure = 0.002, bandWidth = 800):
 	return 1000 * 10**(-magnitude/2.5) * quantumEfficiency * np.pi * radius**2 * exposure * bandWidth
 
-def PadWidth(pxlScaleIn, nx_size, wavelength = 500*10**(-9), pxlScaleOut = 17.7/4656, S = 1/480):
-	return int((((wavelength / (S * pxlScaleOut * pxlScaleIn)) * 9)-nx_size)/2)
+def PadWidth(pxlScaleIn = 0.05/(2*30), nx_size = 512, wavelength = 550*10**(-9), pxlScaleOut = 17.7/(4656), S = 1/480, N=9):
+	return int((((wavelength / (S * pxlScaleOut * pxlScaleIn)) * N)-nx_size)/2)
 
 def BinPixels(array, n):
 	binnedShape = (int(np.trunc(array.shape[0] / n)), int(np.trunc(array.shape[1] / n)))
